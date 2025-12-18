@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>澳洲親子慢活旅</title>
+    
+    <!-- PWA Settings -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#ffffff">
+
+    <!-- Tailwind CSS (CDN) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        ocean: {
+                            50: '#f0f9ff',
+                            100: '#e0f2fe',
+                            400: '#38bdf8',
+                            500: '#0ea5e9', // 主色調
+                            600: '#0284c7',
+                            900: '#0c4a6e',
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', 'Helvetica', 'Arial', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- FontAwesome (CDN) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Vue 3 (CDN) -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+
+    <style>
+        /* 隱藏捲軸但保留功能 */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        
+        /* 平滑捲動 */
+        html {
+            scroll-behavior: smooth;
+        }
+
+        /* 模擬 iOS 底部安全區域 */
+        .pb-safe {
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+        
+        /* 簡單的進場動畫 */
+        .fade-enter-active, .fade-leave-active {
+            transition: opacity 0.3s ease;
+        }
+        .fade-enter-from, .fade-leave-to {
+            opacity: 0;
+        }
+
+        /* 卡片按壓效果 */
+        .active-scale:active {
+            transform: scale(0.98);
+            transition: transform 0.1s;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 h-screen overflow-hidden select-none">
+
+    <div id="app" class="h-full flex flex-col relative">
+
+        <!-- 🔒 鎖定畫面 -->
+        <transition name="fade">
+            <div v-if="isLocked" class="absolute inset-0 z-50 bg-ocean-500 flex flex-col items-center justify-center text-white">
+                <div class="mb-8 text-center">
+                    <i class="fa-solid fa-plane-departure text-5xl mb-4"></i>
+                    <h1 class="text-2xl font-bold">澳洲親子慢活旅</h1>
+                    <p class="text-ocean-100 mt-2">請輸入密碼解鎖</p>
+                </div>
+                
+                <div class="flex gap-4 mb-8">
+                    <div v-for="i in 4" :key="i" 
+                         class="w-4 h-4 rounded-full border-2 border-white transition-all duration-200"
+                         :class="{'bg-white': inputPassword.length >= i}">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-3 gap-6 text-2xl font-medium">
+                    <button v-for="n in 9" :key="n" @click="enterDigit(n)" class="w-16 h-16 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center active:bg-white/40 transition">
+                        {{ n }}
+                    </button>
+                    <div class="w-16 h-16"></div> <!-- Empty slot -->
+                    <button @click="enterDigit(0)" class="w-16 h-16 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center active:bg-white/40 transition">
+                        0
+                    </button>
+                    <button @click="deleteDigit" class="w-16 h-16 flex items-center justify-center active:opacity-70 transition">
+                        <i class="fa-solid fa-delete-left"></i>
+                    </button>
+                </div>
+                <p v-if="errorMsg" class="mt-6 text-red-200 font-bold animate-pulse">{{ errorMsg }}</p>
+            </div>
+        </transition>
+
+        <!-- 📱 主應用程式內容 (解鎖後顯示) -->
+        <div v-else class="flex-1 flex flex-col h-full overflow-hidden">
+            
+            <!-- 頂部 Header -->
+            <header class="bg-white shadow-sm pt-safe-top z-10 sticky top-0">
+                <div class="px-5 py-4 flex justify-between items-center">
+                    <div>
+                        <h1 class="text-xl font-bold text-ocean-900">{{ pageTitle }}</h1>
+                        <p class="text-xs text-gray-500" v-if="currentTab === 'schedule'">{{ currentDayInfo.date }}</p>
+                    </div>
+                    <div class="w-8 h-8 rounded-full bg-ocean-100 flex items-center justify-center text-ocean-600 cursor-pointer" @click="lockApp">
+                        <i class="fa-solid fa-lock"></i>
+                    </div>
+                </div>
+
+                <!-- 日期選擇器 (只在行程頁顯示) -->
+                <div v-if="currentTab === 'schedule'" class="flex overflow-x-auto no-scrollbar px-4 pb-3 gap-3">
+                    <button 
+                        v-for="(day, index) in scheduleData" 
+                        :key="index"
+                        @click="selectedDateIndex = index"
+                        class="flex-shrink-0 flex flex-col items-center justify-center w-14 h-16 rounded-xl transition-all duration-300 border"
+                        :class="selectedDateIndex === index ? 'bg-ocean-500 text-white border-ocean-500 shadow-lg shadow-ocean-500/30' : 'bg-white text-gray-400 border-gray-100'"
+                    >
+                        <span class="text-xs font-medium">{{ getDayName(day.date) }}</span>
+                        <span class="text-lg font-bold">{{ getDayNumber(day.date) }}</span>
+                    </button>
+                </div>
+            </header>
+
+            <!-- 主要內容捲動區 -->
+            <main class="flex-1 overflow-y-auto no-scrollbar bg-gray-50 relative" 
+                  @touchstart="touchStart" 
+                  @touchend="touchEnd">
+                
+                <!-- 1. 行程頁面 -->
+                <div v-if="currentTab === 'schedule'" class="p-5 pb-24">
+                    <!-- 當日重點 -->
+                    <div class="bg-gradient-to-r from-ocean-500 to-ocean-600 rounded-2xl p-4 text-white shadow-lg mb-6">
+                        <div class="flex items-center gap-2 mb-1 opacity-90">
+                            <i class="fa-solid fa-star text-yellow-300"></i>
+                            <span class="text-sm font-medium">今日重點</span>
+                        </div>
+                        <p class="font-bold text-lg leading-tight">{{ currentDayInfo.highlight || '享受美好的一天' }}</p>
+                    </div>
+
+                    <!-- 時間軸列表 -->
+                    <div class="relative pl-4 space-y-8">
+                        <!-- 垂直線 -->
+                        <div class="absolute left-[23px] top-2 bottom-4 w-0.5 bg-gray-200"></div>
+
+                        <div v-for="(item, idx) in currentDayInfo.events" :key="idx" class="relative pl-8">
+                            <!-- 時間點 icon -->
+                            <div class="absolute left-0 top-1 w-12 flex justify-center">
+                                <div class="w-3 h-3 rounded-full border-2 border-white shadow-sm z-10"
+                                     :class="item.type === 'flight' ? 'bg-purple-500' : item.type === 'meal' ? 'bg-orange-400' : 'bg-ocean-500'">
+                                </div>
+                            </div>
+                            
+                            <!-- 卡片 -->
+                            <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100 active-scale" @click="openMap(item.location)">
+                                <div class="flex justify-between items-start mb-1">
+                                    <span class="text-ocean-600 font-bold text-sm">{{ item.time }}</span>
+                                    <i v-if="item.location" class="fa-solid fa-location-dot text-gray-300 text-xs"></i>
+                                </div>
+                                <h3 class="font-bold text-gray-800 text-lg mb-1">{{ item.title }}</h3>
+                                <p class="text-gray-500 text-sm leading-relaxed">{{ item.desc }}</p>
+                                <div v-if="item.note" class="mt-2 text-xs bg-yellow-50 text-yellow-700 px-2 py-1 rounded inline-block">
+                                    <i class="fa-solid fa-circle-info mr-1"></i>{{ item.note }}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. 錢包/資訊頁面 (Wallet) - 用來放簡單預算或票券資訊 -->
+                <div v-if="currentTab === 'wallet'" class="p-5 pb-24">
+                    <div class="bg-white rounded-2xl shadow-sm p-6 mb-4 text-center">
+                        <p class="text-gray-400 text-sm mb-1">預估總花費 (不含機票)</p>
+                        <h2 class="text-3xl font-bold text-ocean-600">AUD $3,250</h2>
+                    </div>
+
+                    <h3 class="font-bold text-gray-700 mb-3 px-1">主要支出項目</h3>
+                    <div class="space-y-3">
+                        <div class="bg-white p-4 rounded-xl shadow-sm flex items-center justify-between">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-full bg-blue-100 text-blue-500 flex items-center justify-center"><i class="fa-solid fa-ship"></i></div>
+                                <div>
+                                    <p class="font-bold">摩頓島套裝</p>
+                                    <p class="text-xs text-gray-400">住宿 + 船票 + 餵海豚</p>
+                                </div>
+                            </div>
+                            <span class="font-bold text-gray-700">$980</span>
+                        </div>
+                        <div class="bg-white p-4 rounded-xl shadow-sm flex items-center justify-between">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-full bg-green-100 text-green-500 flex items-center justify-center"><i class="fa-solid fa-car"></i></div>
+                                <div>
+                                    <p class="font-bold">租車費用</p>
+                                    <p class="text-xs text-gray-400">4天 SUV + 汽座</p>
+                                </div>
+                            </div>
+                            <span class="font-bold text-gray-700">$520</span>
+                        </div>
+                        <div class="bg-white p-4 rounded-xl shadow-sm flex items-center justify-between">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-full bg-purple-100 text-purple-500 flex items-center justify-center"><i class="fa-solid fa-ticket"></i></div>
+                                <div>
+                                    <p class="font-bold">樂園門票</p>
+                                    <p class="text-xs text-gray-400">Sea World + Australia Zoo</p>
+                                </div>
+                            </div>
+                            <span class="font-bold text-gray-700">$380</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 3. 資訊頁面 (Checklist) -->
+                <div v-if="currentTab === 'info'" class="p-5 pb-24">
+                    <h3 class="font-bold text-lg text-ocean-900 mb-4">行前清單 & 備忘錄</h3>
+                    
+                    <div v-for="(category, cIdx) in infoData" :key="cIdx" class="mb-6">
+                        <h4 class="font-bold text-gray-600 mb-2 ml-1 flex items-center gap-2">
+                            <i :class="category.icon" class="text-ocean-500"></i>
+                            {{ category.title }}
+                        </h4>
+                        <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+                            <div v-for="(item, iIdx) in category.items" :key="iIdx" 
+                                 class="p-4 border-b last:border-0 flex items-start gap-3 border-gray-100">
+                                <i class="fa-solid fa-check text-green-500 mt-1" v-if="true"></i> <!-- Visual check -->
+                                <p class="text-gray-700 text-sm leading-relaxed">{{ item }}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-yellow-50 border border-yellow-200 rounded-xl p-4 mt-4">
+                        <h4 class="font-bold text-yellow-800 mb-2"><i class="fa-solid fa-child-reaching mr-2"></i>幼兒提醒</h4>
+                        <p class="text-sm text-yellow-700 mb-2">● 記得隨身帶安撫玩具與貼紙書。</p>
+                        <p class="text-sm text-yellow-700">● 暈船藥請提早 30 分鐘服用。</p>
+                    </div>
+                </div>
+
+            </main>
+
+            <!-- 底部導航列 -->
+            <nav class="bg-white border-t border-gray-100 pb-safe fixed bottom-0 w-full z-40">
+                <div class="flex justify-around items-center h-16">
+                    <button @click="currentTab = 'schedule'" class="flex flex-col items-center justify-center w-full h-full space-y-1" :class="currentTab === 'schedule' ? 'text-ocean-500' : 'text-gray-300'">
+                        <i class="fa-solid fa-calendar-day text-xl"></i>
+                        <span class="text-[10px] font-medium">行程</span>
+                    </button>
+                    <button @click="currentTab = 'wallet'" class="flex flex-col items-center justify-center w-full h-full space-y-1" :class="currentTab === 'wallet' ? 'text-ocean-500' : 'text-gray-300'">
+                        <i class="fa-solid fa-wallet text-xl"></i>
+                        <span class="text-[10px] font-medium">預算</span>
+                    </button>
+                    <button @click="currentTab = 'info'" class="flex flex-col items-center justify-center w-full h-full space-y-1" :class="currentTab === 'info' ? 'text-ocean-500' : 'text-gray-300'">
+                        <i class="fa-solid fa-circle-info text-xl"></i>
+                        <span class="text-[10px] font-medium">資訊</span>
+                    </button>
+                </div>
+            </nav>
+
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, computed, reactive } = Vue;
+
+        createApp({
+            setup() {
+                // --- 狀態管理 ---
+                const isLocked = ref(true);
+                const inputPassword = ref('');
+                const errorMsg = ref('');
+                const currentTab = ref('schedule'); // schedule, wallet, info
+                const selectedDateIndex = ref(0);
+                
+                // 觸控滑動狀態
+                const touchStartX = ref(0);
+                const touchEndX = ref(0);
+
+                // --- 資料內容 (Data) ---
+                const scheduleData = [
+                    {
+                        date: '2026/08/29',
+                        highlight: '抵達布里斯本，享受南岸沙灘與河岸風光',
+                        events: [
+                            { time: '10:35', title: '抵達布里斯本機場 (BNE)', desc: '華航 CI53。出關後搭 Uber 前往飯店。', type: 'flight', location: 'Brisbane Airport' },
+                            { time: '11:45', title: '前往飯店寄放行李', desc: 'Pegasus Motor Inn (Hamilton區)。換裝準備出發。', type: 'move', location: 'Pegasus Motor Inn Hamilton' },
+                            { time: '12:30', title: '午餐：Portside Wharf', desc: '推薦 Sono 日式或 Belvedere 牛排。', type: 'meal', location: 'Portside Wharf' },
+                            { time: '14:00', title: 'CityCat 渡輪前往南岸', desc: '沿途欣賞布里斯本河岸風光。', type: 'move', location: 'Bretts Wharf Ferry Terminal' },
+                            { time: '15:15', title: 'Streets Beach 南岸公園', desc: '市區人造沙灘，小孩玩沙踩水。', note: '記得帶備用衣物', type: 'fun', location: 'Streets Beach, South Bank' },
+                            { time: '18:30', title: '晚餐：South Bank 美食街', desc: 'The Plough Inn 或日式煎餃。', type: 'meal', location: 'South Bank Parklands' },
+                            { time: '20:30', title: '返回飯店', desc: '搭 Uber 或渡輪返回休息。', type: 'move', location: 'Pegasus Motor Inn Hamilton' }
+                        ]
+                    },
+                    {
+                        date: '2026/08/30',
+                        highlight: '前往摩頓島，期待晚上海豚餵食',
+                        events: [
+                            { time: '09:00', title: '前往碼頭報到', desc: 'Holt Street Wharf (需託運行李)。', type: 'move', location: 'Holt Street Wharf' },
+                            { time: '10:00', title: '渡輪前往摩頓島', desc: '船程 75 分鐘。', note: '記得吃暈船藥', type: 'move', location: 'Tangalooma Island Resort Ferry' },
+                            { time: '11:15', title: '抵達 Tangalooma Resort', desc: '辦理 Check-in，可先用 Guest Lounge。', type: 'stay', location: 'Tangalooma Island Resort' },
+                            { time: '12:30', title: '午餐', desc: 'Beach Cafe 或簡單野餐。', type: 'meal', location: 'Tangalooma Island Resort' },
+                            { time: '14:00', title: '飯店設施時間', desc: '沙灘玩沙、游泳池、或回房補眠。', type: 'fun', location: 'Tangalooma Island Resort' },
+                            { time: '19:00', title: '晚餐：Fire & Stone', desc: '亞洲料理或自助餐。', type: 'meal', location: 'Fire and Stone Tangalooma' },
+                            { time: '20:00', title: '預習餵海豚', desc: '到碼頭看別人餵海豚，為明天做準備。', type: 'fun', location: 'Tangalooma Jetty' }
+                        ]
+                    },
+                    {
+                        date: '2026/08/31',
+                        highlight: '重頭戲：賞鯨與親手餵海豚',
+                        events: [
+                            { time: '08:00', title: '早餐：Coffee Shop', desc: '輕食為主，搭船前別吃太飽。', type: 'meal', location: 'Tangalooma Coffee Shop' },
+                            { time: '09:30', title: '早晨散步', desc: '沙灘散步、Eco Centre 參觀。', type: 'fun', location: 'Tangalooma Eco Centre' },
+                            { time: '11:00', title: '鵜鶘餵食秀 (Pelican)', desc: '看大嘴鳥搶食。', type: 'fun', location: 'Tangalooma Jetty' },
+                            { time: '12:00', title: '賞鯨船出航', desc: '約 3 小時。', note: '準備安撫玩具', type: 'fun', location: 'Tangalooma Jetty' },
+                            { time: '15:30', title: '回房休息 & 午睡', desc: '洗澡洗去鹽分，強制午睡充值體力。', type: 'stay', location: 'Tangalooma Island Resort' },
+                            { time: '18:00', title: '親手餵海豚', desc: '大人抱小孩下水。', note: '不能擦防曬/乳液', type: 'fun', location: 'Tangalooma Jetty' },
+                            { time: '19:00', title: '晚餐：Copperhead', desc: '牛排燒烤餐廳。', type: 'meal', location: 'Copperhead Restaurant Tangalooma' }
+                        ]
+                    },
+                    {
+                        date: '2026/09/01',
+                        highlight: '自駕啟動，前進黃金海岸',
+                        events: [
+                            { time: '09:30', title: '搭渡輪離島', desc: '告別摩頓島。', type: 'move', location: 'Tangalooma Jetty' },
+                            { time: '11:00', title: '機場租車取車', desc: '預約中大型 SUV + 汽座。', type: 'move', location: 'Brisbane Airport Car Rental' },
+                            { time: '12:30', title: '午餐：Yatala Pies', desc: 'M1 高速公路知名肉派。', type: 'meal', location: 'Yatala Pies' },
+                            { time: '14:30', title: '抵達黃金海岸', desc: '入住 Meriton Suites Broadbeach (有廚房/洗衣機)。', type: 'stay', location: 'Meriton Suites Broadbeach' },
+                            { time: '16:00', title: 'Pacific Fair 採買', desc: '就在飯店對面，超市補給、逛街。', type: 'shop', location: 'Pacific Fair Shopping Centre' },
+                            { time: '18:30', title: '晚餐：Hurricane\'s Grill', desc: '豬肋排大餐。', type: 'meal', location: 'Hurricane\'s Grill Surfers Paradise' }
+                        ]
+                    },
+                    {
+                        date: '2026/09/02',
+                        highlight: 'Sea World 海洋世界與汪汪隊',
+                        events: [
+                            { time: '09:30', title: '入園 Sea World', desc: 'Gold Coast。', type: 'fun', location: 'Sea World Gold Coast' },
+                            { time: '10:15', title: '海獅秀', desc: 'Seal Guardians。', type: 'fun', location: 'Sea World Gold Coast' },
+                            { time: '11:00', title: '汪汪隊表演 (PAW Patrol)', desc: '暘暘最愛！看完馬上衝隔壁海豚秀。', type: 'fun', location: 'Sea World Gold Coast' },
+                            { time: '11:15', title: '海豚秀', desc: 'Affinity Dolphin。', type: 'fun', location: 'Sea World Gold Coast' },
+                            { time: '13:00', title: '午餐', desc: '園區內或附近 Marina Mirage。', type: 'meal', location: 'Sea World Gold Coast' },
+                            { time: '14:30', title: '開車北上 (Nap Time)', desc: '利用 2 小時車程讓小孩午睡，直奔陽光海岸。', type: 'move', location: 'Sunshine Coast' },
+                            { time: '16:45', title: '超市補給', desc: 'Big Fish Junction (Coles)。', type: 'shop', location: 'Big Fish Junction' },
+                            { time: '17:30', title: '入住小木屋', desc: 'Landsborough Holiday Park。', type: 'stay', location: 'Landsborough Pines Caravan Park' },
+                            { time: '19:00', title: '晚餐', desc: '溫馨自煮。', type: 'meal', location: 'Landsborough Pines Caravan Park' }
+                        ]
+                    },
+                    {
+                        date: '2026/09/03',
+                        highlight: '澳洲動物園 Crocodile Hunter',
+                        events: [
+                            { time: '09:15', title: '入園 Australia Zoo', desc: '鱷魚先生的家。', type: 'fun', location: 'Australia Zoo' },
+                            { time: '10:00', title: 'Roo Heaven', desc: '親手餵食袋鼠、摸摸袋鼠。', type: 'fun', location: 'Australia Zoo' },
+                            { time: '12:30', title: '午餐', desc: '園區內美食街。', type: 'meal', location: 'Australia Zoo' },
+                            { time: '13:15', title: '鱷魚秀', desc: 'Crocoseum (聲音大，可坐後面)。', type: 'fun', location: 'Australia Zoo' },
+                            { time: '14:30', title: 'Splash Park', desc: '幼兒玩水放電救星。', type: 'fun', location: 'Australia Zoo' },
+                            { time: '16:30', title: '拜訪朋友 Greg', desc: '前往 Wamuran。', type: 'move', location: 'Wamuran QLD' }
+                        ]
+                    },
+                    {
+                        date: '2026/09/04',
+                        highlight: '山城慢遊與 Outlet 最後衝刺',
+                        events: [
+                            { time: '09:20', title: '前往 Maleny 山區', desc: '注意耳壓，準備水/奶嘴。', type: 'move', location: 'Maleny QLD' },
+                            { time: '09:40', title: 'Mary Cairncross Reserve', desc: '平緩雨林步道，眺望玻璃屋山脈。', type: 'fun', location: 'Mary Cairncross Scenic Reserve' },
+                            { time: '11:00', title: 'Maleny 小鎮散步', desc: '必吃 Maleny Food Co. 義式冰淇淋。', type: 'fun', location: 'Maleny Food Co.' },
+                            { time: '11:30', title: '午餐：King Ludwigs', desc: '德國豬腳。', type: 'meal', location: 'King Ludwigs German Restaurant' },
+                            { time: '13:30', title: 'The Ginger Factory', desc: '搭乘百年蒸氣小火車、薑餅人船。', type: 'fun', location: 'The Ginger Factory' },
+                            { time: '15:30', title: 'DFO Brisbane', desc: '機場旁 Outlet 最後衝刺 (買藥妝/紀念品)。', type: 'shop', location: 'DFO Brisbane' },
+                            { time: '18:00', title: '晚餐：Skygate 美食街', desc: '吃飽再上飛機。', type: 'meal', location: 'Skygate Centre' },
+                            { time: '19:30', title: '還車', desc: '機場附近加滿油 -> 還車。', type: 'move', location: 'Brisbane Airport Car Rental' },
+                            { time: '22:50', title: '搭機返台', desc: '華航 CI54。', type: 'flight', location: 'Brisbane International Airport' }
+                        ]
+                    },
+                    {
+                        date: '2026/09/05',
+                        highlight: '抵達溫暖的家',
+                        events: [
+                            { time: '05:45', title: '抵達桃園機場', desc: '回到溫暖的家。', type: 'flight', location: 'Taoyuan International Airport' }
+                        ]
+                    }
+                ];
+
+                const infoData = [
+                    {
+                        title: '必備文件',
+                        icon: 'fa-passport',
+                        items: ['護照 (確認效期)', 'ETA 簽證 (全家)', '國際駕照 (Jeff)', '國內駕照正本']
+                    },
+                    {
+                        title: '訂位提醒',
+                        icon: 'fa-calendar-check',
+                        items: ['華航線上報到 (回程前 48hr)', 'Day 4 Hurricane\'s Grill 訂位']
+                    },
+                    {
+                        title: '衣物準備',
+                        icon: 'fa-shirt',
+                        items: ['洋蔥式穿法 (早晚溫差大)', '防風外套 (船上/海邊)', '玩水裝備 (Day 2,3,5,6 用)']
+                    }
+                ];
+
+                // --- 邏輯計算 ---
+
+                const currentDayInfo = computed(() => {
+                    return scheduleData[selectedDateIndex.value];
+                });
+
+                const pageTitle = computed(() => {
+                    if(currentTab.value === 'schedule') return '行程總覽';
+                    if(currentTab.value === 'wallet') return '我的錢包';
+                    return '旅遊資訊';
+                });
+
+                // --- 方法 ---
+
+                const enterDigit = (num) => {
+                    if (inputPassword.value.length < 4) {
+                        inputPassword.value += num;
+                        if (inputPassword.value.length === 4) {
+                            checkPassword();
+                        }
+                    }
+                };
+
+                const deleteDigit = () => {
+                    inputPassword.value = inputPassword.value.slice(0, -1);
+                    errorMsg.value = '';
+                };
+
+                const checkPassword = () => {
+                    if (inputPassword.value === '1210') {
+                        // 解鎖成功
+                        setTimeout(() => {
+                            isLocked.value = false;
+                            inputPassword.value = '';
+                        }, 200);
+                    } else {
+                        errorMsg.value = '密碼錯誤';
+                        setTimeout(() => {
+                            inputPassword.value = '';
+                            errorMsg.value = '';
+                        }, 800);
+                    }
+                };
+
+                const lockApp = () => {
+                    isLocked.value = true;
+                };
+
+                const getDayNumber = (dateStr) => {
+                    return dateStr.split('/')[2];
+                };
+
+                const getDayName = (dateStr) => {
+                    const days = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
+                    const date = new Date(dateStr);
+                    return days[date.getDay()];
+                };
+
+                const openMap = (location) => {
+                    if(!location) return;
+                    const query = encodeURIComponent(location);
+                    window.open(`https://www.google.com/maps/search/?api=1&query=${query}`, '_blank');
+                };
+
+                // Swipe Logic
+                const touchStart = (e) => {
+                    touchStartX.value = e.changedTouches[0].screenX;
+                };
+
+                const touchEnd = (e) => {
+                    touchEndX.value = e.changedTouches[0].screenX;
+                    handleSwipe();
+                };
+
+                const handleSwipe = () => {
+                    if(currentTab.value !== 'schedule') return;
+
+                    const diff = touchStartX.value - touchEndX.value;
+                    const threshold = 50; // 滑動靈敏度
+
+                    if (Math.abs(diff) > threshold) {
+                        if (diff > 0) {
+                            // 向左滑 (下一天)
+                            if (selectedDateIndex.value < scheduleData.length - 1) {
+                                selectedDateIndex.value++;
+                            }
+                        } else {
+                            // 向右滑 (上一天)
+                            if (selectedDateIndex.value > 0) {
+                                selectedDateIndex.value--;
+                            }
+                        }
+                    }
+                };
+
+                return {
+                    isLocked,
+                    inputPassword,
+                    errorMsg,
+                    currentTab,
+                    selectedDateIndex,
+                    scheduleData,
+                    infoData,
+                    currentDayInfo,
+                    pageTitle,
+                    enterDigit,
+                    deleteDigit,
+                    lockApp,
+                    getDayNumber,
+                    getDayName,
+                    openMap,
+                    touchStart,
+                    touchEnd
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
